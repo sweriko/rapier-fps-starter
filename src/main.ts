@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import * as RAPIER from '@dimforge/rapier3d-compat';
 import { FPSController } from './controllers/FPSController';
 import { createGround } from './objects/Ground';
 import { createSky } from './objects/Sky';
 import { setupLights } from './utils/Lights';
 import { createCube, createRandomCubes } from './objects/Cube';
+
+// Import Rapier directly - the plugins will handle the WASM loading
+import RAPIER from '@dimforge/rapier3d';
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -36,9 +38,6 @@ let cubes: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody }[] = [];
 
 // Initialize the game
 async function init() {
-  // Initialize Rapier
-  await RAPIER.init();
-  
   // Create physics world
   physics = {
     world: new RAPIER.World({ x: 0, y: -9.81, z: 0 }),
