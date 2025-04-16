@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d';
 import { createGun, createMuzzleFlash } from '../objects/Gun';
-import { createBullet } from '../objects/Bullet';
+import { castBulletRay } from '../objects/Bullet';
 
 // Interface for physics world
 interface PhysicsWorld {
@@ -35,7 +35,6 @@ export class FPSController {
   isShooting: boolean;
   muzzleFlash: THREE.Group | null;
   lastShootTime: number;
-  bullets: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody, creationTime: number, lifetime: number }[];
   scene: THREE.Scene | null;
 
   constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }, domElement: HTMLElement) {
@@ -47,7 +46,6 @@ export class FPSController {
     this.lastJumpTime = 0;
     this.isShooting = false;
     this.lastShootTime = 0;
-    this.bullets = [];
     this.muzzleFlash = null;
     this.scene = null;
 
@@ -235,49 +233,48 @@ export class FPSController {
     };
     
     // Debug log
-    console.log("Firing bullet from position:", bulletPosition);
-    console.log("Bullet direction:", bulletDirection);
+    console.log("Firing from position:", bulletPosition);
+    console.log("Firing direction:", bulletDirection);
     
-    // Create bullet with its own physics body
-    const bullet = createBullet(
+    // Cast a ray instead of creating a physical bullet
+    const raycastResult = castBulletRay(
       this.physics,
       bulletPosition,
       bulletDirection,
-      40 // Bullet speed
+      100 // Max distance
     );
     
-    // Add bullet to scene and tracking
-    this.scene.add(bullet.mesh);
-    this.bullets.push(bullet);
-    
-    // Create and position muzzle flash
-    if (this.muzzleFlash) {
-      this.camera.remove(this.muzzleFlash);
+    // Handle hit if something was hit
+    if (raycastResult.hit && raycastResult.hitRigidBody) {
+      console.log("Hit object at distance:", raycastResult.distance);
+      
+      // Apply impulse to the hit object if it's a dynamic body
+      if (raycastResult.hitRigidBody.bodyType() === RAPIER.RigidBodyType.Dynamic) {
+        const impulseStrength = 40; // Strength of the impact
+        const impulseDir = bulletDirection;
+        
+        // Apply impulse at the hit point
+        raycastResult.hitRigidBody.applyImpulseAtPoint(
+          { 
+            x: impulseDir.x * impulseStrength, 
+            y: impulseDir.y * impulseStrength, 
+            z: impulseDir.z * impulseStrength 
+          },
+          raycastResult.hitPoint,
+          true
+        );
+        
+        // Add some random rotation for more realistic impact
+        raycastResult.hitRigidBody.applyTorqueImpulse(
+          {
+            x: (Math.random() - 0.5) * impulseStrength * 0.5,
+            y: (Math.random() - 0.5) * impulseStrength * 0.5,
+            z: (Math.random() - 0.5) * impulseStrength * 0.5
+          },
+          true
+        );
+      }
     }
-    
-    this.muzzleFlash = createMuzzleFlash();
-    
-    // Position the muzzle flash at the gun barrel
-    const flashPosition = new THREE.Vector3(0.2, -0.25, -0.8);
-    this.muzzleFlash.position.copy(flashPosition);
-    this.camera.add(this.muzzleFlash);
-    
-    // Remove muzzle flash after a short time
-    setTimeout(() => {
-      if (this.muzzleFlash) {
-        this.camera.remove(this.muzzleFlash);
-        this.muzzleFlash = null;
-      }
-    }, 100);
-    
-    // Add simple recoil effect
-    this.pitchObject.rotation.x += 0.03;
-    const recoilRecoveryTime = 100; // ms
-    setTimeout(() => {
-      if (this.pitchObject) {
-        this.pitchObject.rotation.x -= 0.03;
-      }
-    }, recoilRecoveryTime);
   }
 
   update(deltaTime: number) {
@@ -351,32 +348,6 @@ export class FPSController {
     // Handle continuous shooting
     if (this.isShooting) {
       this.shoot();
-    }
-
-    // Update and check bullets for lifetime
-    if (this.scene) {
-      const now = Date.now();
-      const bulletsToRemove = [];
-
-      for (let i = 0; i < this.bullets.length; i++) {
-        const bullet = this.bullets[i];
-        
-        // Check if bullet lifetime has expired
-        if (now - bullet.creationTime > bullet.lifetime) {
-          // Mark for removal
-          bulletsToRemove.push(i);
-          
-          // Remove from scene and physics
-          this.scene.remove(bullet.mesh);
-          this.physics.world.removeRigidBody(bullet.rigidBody);
-          this.physics.rigidBodies.delete(bullet.mesh);
-        }
-      }
-      
-      // Remove expired bullets from array (in reverse order to not affect indices)
-      for (let i = bulletsToRemove.length - 1; i >= 0; i--) {
-        this.bullets.splice(bulletsToRemove[i], 1);
-      }
     }
   }
 } 

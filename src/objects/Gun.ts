@@ -51,65 +51,12 @@ export function createGun() {
   // Position the gun in the bottom right of the screen
   gunGroup.position.set(0.2, -0.2, -0.5);
   
-  // Add small random movement to simulate breathing/holding the gun
-  let lastTime = 0;
-  const animate = (time: number) => {
-    const delta = time - lastTime;
-    lastTime = time;
-    
-    const breathingAmplitude = 0.001;
-    const breathingSpeed = 0.002;
-    gunGroup.position.y = -0.2 + Math.sin(time * breathingSpeed) * breathingAmplitude;
-    gunGroup.rotation.z = Math.sin(time * breathingSpeed * 0.5) * 0.01;
-    
-    requestAnimationFrame(animate);
-  };
-  requestAnimationFrame(animate);
+  // Breathing animation removed
   
   return gunGroup;
 }
 
-// Muzzle flash effect
+// Empty muzzle flash function that returns an empty group (to maintain API compatibility)
 export function createMuzzleFlash() {
-  // Create a simple particle system for the muzzle flash
-  const geometry = new THREE.BufferGeometry();
-  const vertices = [];
-  
-  // Create a cone-like arrangement of particles
-  for (let i = 0; i < 20; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = Math.random() * 0.08;
-    const z = -Math.random() * 0.2;
-    
-    vertices.push(
-      Math.cos(angle) * radius, 
-      Math.sin(angle) * radius, 
-      z
-    );
-  }
-  
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  
-  // Create materials
-  const material = new THREE.PointsMaterial({
-    color: 0xffff00,
-    size: 0.05,
-    blending: THREE.AdditiveBlending,
-    transparent: true,
-    opacity: 0.8
-  });
-  
-  // Create the particle system
-  const particles = new THREE.Points(geometry, material);
-  
-  // Create a light for the flash
-  const light = new THREE.PointLight(0xffff00, 5, 1);
-  light.position.set(0, 0, 0);
-  
-  // Create a group to hold both the particles and light
-  const group = new THREE.Group();
-  group.add(particles);
-  group.add(light);
-  
-  return group;
+  return new THREE.Group(); // Returns an empty group instead of particles and light
 } 
