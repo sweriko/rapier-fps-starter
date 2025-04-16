@@ -5,6 +5,8 @@ import { createSky } from './objects/Sky';
 import { setupLights } from './utils/Lights';
 import { createCube, createRandomCubes } from './objects/Cube';
 import { loadModel } from './objects/Model';
+import { InputHandler } from './input/InputHandler';
+import { updateVisualBullets } from './objects/BulletVisual';
 
 // Import Rapier directly - the plugins will handle the WASM loading
 import RAPIER from '@dimforge/rapier3d';
@@ -34,6 +36,7 @@ let physics: {
 };
 
 let fpsController: FPSController;
+let inputHandler: InputHandler;
 let lastTime = 0;
 let cubes: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody }[] = [];
 // Bullets are now handled via raycasting
@@ -89,6 +92,17 @@ async function init() {
   
   // Set the scene reference in the controller to allow bullet management
   fpsController.setScene(scene);
+
+  // Initialize input handler
+  inputHandler = new InputHandler();
+  
+  // Listen for debug toggle event
+  document.addEventListener('toggle-debug', () => {
+    if (fpsController.debugVisualizer) {
+      fpsController.debugVisualizer.toggle();
+      console.log("Debug visualization:", fpsController.debugVisualizer.isActive() ? "enabled" : "disabled");
+    }
+  });
 
   // Add crosshair
   createCrosshair();
@@ -187,10 +201,14 @@ function animate(time: number) {
   // Step physics world
   physics.world.step();
 
-  // Handle bullet collisions - removed since we now use raycasts
+  // Update input handler
+  inputHandler.update();
 
   // Update controller
   fpsController.update(deltaTime);
+  
+  // Update visual bullets
+  updateVisualBullets(deltaTime);
 
   // Update cube positions based on physics
   cubes.forEach(({ mesh, rigidBody }) => {
