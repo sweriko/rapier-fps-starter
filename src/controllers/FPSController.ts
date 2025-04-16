@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d';
+import { createGun, createMuzzleFlash } from '../objects/Gun';
+import { createBullet } from '../objects/Bullet';
 
 // FPS Controller class
 export class FPSController {
@@ -25,6 +27,13 @@ export class FPSController {
   position: THREE.Vector3;
   jumpRequested: boolean;
   lastJumpTime: number;
+  // Shooting related properties
+  gun: THREE.Group;
+  isShooting: boolean;
+  muzzleFlash: THREE.Group | null;
+  lastShootTime: number;
+  bullets: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody, creationTime: number, lifetime: number }[];
+  scene: THREE.Scene | null;
 
   constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> }, domElement: HTMLElement) {
     this.camera = camera;
@@ -33,6 +42,11 @@ export class FPSController {
     this.isLocked = false;
     this.jumpRequested = false;
     this.lastJumpTime = 0;
+    this.isShooting = false;
+    this.lastShootTime = 0;
+    this.bullets = [];
+    this.muzzleFlash = null;
+    this.scene = null;
 
     // Create a character controller
     const position = new RAPIER.Vector3(0, 5, 10);
@@ -74,15 +88,26 @@ export class FPSController {
     this.moveRight = false;
     this.canJump = false;
 
+    // Create gun and add it to the camera
+    this.gun = createGun();
+    this.camera.add(this.gun);
+
     // Set up pointer lock controls
     this.setupPointerLock();
     
-    // Set up keyboard input
+    // Set up keyboard and mouse input
     document.addEventListener('keydown', this.onKeyDown.bind(this), false);
     document.addEventListener('keyup', this.onKeyUp.bind(this), false);
+    document.addEventListener('mousedown', this.onMouseDown.bind(this), false);
+    document.addEventListener('mouseup', this.onMouseUp.bind(this), false);
 
     // Lock rotations - prevent tipping over
     this.rigidBody.lockRotations(true, true);
+  }
+
+  // Set the scene reference so we can add/remove bullets
+  setScene(scene: THREE.Scene) {
+    this.scene = scene;
   }
 
   setupPointerLock() {
@@ -166,6 +191,92 @@ export class FPSController {
     }
   }
 
+  onMouseDown(event: MouseEvent) {
+    if (!this.isLocked) return;
+    
+    // Only handle left mouse button (button 0)
+    if (event.button === 0) {
+      this.isShooting = true;
+      this.shoot();
+    }
+  }
+
+  onMouseUp(event: MouseEvent) {
+    if (event.button === 0) {
+      this.isShooting = false;
+    }
+  }
+
+  shoot() {
+    if (!this.scene) return;
+    
+    const now = Date.now();
+    // Don't allow shooting faster than once every 200ms (5 shots per second)
+    if (now - this.lastShootTime < 200) return;
+    this.lastShootTime = now;
+    
+    // Get current camera position and direction
+    const cameraPosition = new THREE.Vector3();
+    this.camera.getWorldPosition(cameraPosition);
+    
+    // Calculate bullet direction - forward vector from camera
+    const bulletDirection = new THREE.Vector3(0, 0, -1);
+    bulletDirection.applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    
+    // Position the bullet slightly in front of the camera
+    const bulletOffset = 0.5; // Distance in front of the camera
+    const bulletPosition = {
+      x: cameraPosition.x + bulletDirection.x * bulletOffset,
+      y: cameraPosition.y + bulletDirection.y * bulletOffset,
+      z: cameraPosition.z + bulletDirection.z * bulletOffset
+    };
+    
+    // Debug log
+    console.log("Firing bullet from position:", bulletPosition);
+    console.log("Bullet direction:", bulletDirection);
+    
+    // Create bullet with its own physics body
+    const bullet = createBullet(
+      this.physics,
+      bulletPosition,
+      bulletDirection,
+      40 // Bullet speed
+    );
+    
+    // Add bullet to scene and tracking
+    this.scene.add(bullet.mesh);
+    this.bullets.push(bullet);
+    
+    // Create and position muzzle flash
+    if (this.muzzleFlash) {
+      this.camera.remove(this.muzzleFlash);
+    }
+    
+    this.muzzleFlash = createMuzzleFlash();
+    
+    // Position the muzzle flash at the gun barrel
+    const flashPosition = new THREE.Vector3(0.2, -0.25, -0.8);
+    this.muzzleFlash.position.copy(flashPosition);
+    this.camera.add(this.muzzleFlash);
+    
+    // Remove muzzle flash after a short time
+    setTimeout(() => {
+      if (this.muzzleFlash) {
+        this.camera.remove(this.muzzleFlash);
+        this.muzzleFlash = null;
+      }
+    }, 100);
+    
+    // Add simple recoil effect
+    this.pitchObject.rotation.x += 0.03;
+    const recoilRecoveryTime = 100; // ms
+    setTimeout(() => {
+      if (this.pitchObject) {
+        this.pitchObject.rotation.x -= 0.03;
+      }
+    }, recoilRecoveryTime);
+  }
+
   update(deltaTime: number) {
     if (!this.rigidBody) return;
 
@@ -233,5 +344,36 @@ export class FPSController {
     // Update Three.js object position from physics
     const translation = this.rigidBody.translation();
     this.position.set(translation.x, translation.y, translation.z);
+
+    // Handle continuous shooting
+    if (this.isShooting) {
+      this.shoot();
+    }
+
+    // Update and check bullets for lifetime
+    if (this.scene) {
+      const now = Date.now();
+      const bulletsToRemove = [];
+
+      for (let i = 0; i < this.bullets.length; i++) {
+        const bullet = this.bullets[i];
+        
+        // Check if bullet lifetime has expired
+        if (now - bullet.creationTime > bullet.lifetime) {
+          // Mark for removal
+          bulletsToRemove.push(i);
+          
+          // Remove from scene and physics
+          this.scene.remove(bullet.mesh);
+          this.physics.world.removeRigidBody(bullet.rigidBody);
+          this.physics.rigidBodies.delete(bullet.mesh);
+        }
+      }
+      
+      // Remove expired bullets from array (in reverse order to not affect indices)
+      for (let i = bulletsToRemove.length - 1; i >= 0; i--) {
+        this.bullets.splice(bulletsToRemove[i], 1);
+      }
+    }
   }
 } 
