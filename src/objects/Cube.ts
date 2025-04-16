@@ -3,7 +3,7 @@ import RAPIER from '@dimforge/rapier3d';
 
 // Create a single physics-enabled cube
 export function createCube(
-  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> },
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
   position: { x: number; y: number; z: number },
   size: number = 1,
   color: number = Math.random() * 0xffffff
@@ -43,7 +43,7 @@ export function createCube(
 
 // Create multiple random cubes
 export function createRandomCubes(
-  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> },
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
   count: number = 20,
   area: number = 20,
   heightRange: number = 10

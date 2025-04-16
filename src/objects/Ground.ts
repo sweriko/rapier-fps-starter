@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d';
 
 // Create a ground plane with physics
-export function createGround(physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> }) {
+export function createGround(physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }) {
   // Create a large flat plane for the ground
   const groundGeometry = new THREE.PlaneGeometry(100, 100);
   

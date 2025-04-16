@@ -4,6 +4,7 @@ import { createGround } from './objects/Ground';
 import { createSky } from './objects/Sky';
 import { setupLights } from './utils/Lights';
 import { createCube, createRandomCubes } from './objects/Cube';
+import { loadModel } from './objects/Model';
 
 // Import Rapier directly - the plugins will handle the WASM loading
 import RAPIER from '@dimforge/rapier3d';
@@ -29,7 +30,7 @@ document.body.appendChild(renderer.domElement);
 // Initialize Rapier physics
 let physics: {
   world: RAPIER.World;
-  rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody>;
+  rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody>;
 };
 
 let fpsController: FPSController;
@@ -56,6 +57,21 @@ async function init() {
 
   // Setup lights
   setupLights(scene);
+
+  // Load the destructible house model
+  try {
+    const { model } = await loadModel(
+      physics,
+      '/destructiblehouse.glb',  // Path to the model
+      { x: 8, y: 0, z: 0 },      // Position
+      3,                         // Scale (3x original size)
+      true                       // Static/fixed (like cubes)
+    );
+    scene.add(model);
+    console.log('Destructible house model loaded successfully');
+  } catch (error) {
+    console.error('Failed to load house model:', error);
+  }
 
   // Create a stack of cubes in the center
   const stackCubes = createStackedCubes(physics, 5, 5, { x: -8, y: 0, z: 0 });
@@ -130,7 +146,7 @@ function createCrosshair() {
 
 // Create a stack of cubes
 function createStackedCubes(
-  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> },
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
   width: number,
   height: number,
   position: { x: number, y: number, z: number }

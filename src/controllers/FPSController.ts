@@ -3,14 +3,17 @@ import RAPIER from '@dimforge/rapier3d';
 import { createGun, createMuzzleFlash } from '../objects/Gun';
 import { createBullet } from '../objects/Bullet';
 
+// Interface for physics world
+interface PhysicsWorld {
+  world: RAPIER.World;
+  rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody>;
+}
+
 // FPS Controller class
 export class FPSController {
   object: THREE.Object3D;
   camera: THREE.Camera;
-  physics: {
-    world: RAPIER.World;
-    rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody>;
-  };
+  physics: PhysicsWorld;
   rigidBody: RAPIER.RigidBody;
   collider: RAPIER.Collider;
   velocity: THREE.Vector3;
@@ -35,7 +38,7 @@ export class FPSController {
   bullets: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody, creationTime: number, lifetime: number }[];
   scene: THREE.Scene | null;
 
-  constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> }, domElement: HTMLElement) {
+  constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }, domElement: HTMLElement) {
     this.camera = camera;
     this.physics = physics;
     this.domElement = domElement;

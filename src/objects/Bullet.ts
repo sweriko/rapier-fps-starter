@@ -3,7 +3,7 @@ import RAPIER from '@dimforge/rapier3d';
 
 // Create a single physics-enabled bullet
 export function createBullet(
-  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Mesh, RAPIER.RigidBody> },
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
   position: { x: number; y: number; z: number },
   direction: THREE.Vector3,
   speed: number = 40
