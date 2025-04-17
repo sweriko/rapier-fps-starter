@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d';
-import { createGun } from '../objects/Gun';
 import { castBulletRay } from '../objects/Bullet';
 import { createVisualBullet } from '../objects/BulletVisual';
 import { DebugVisualizer } from '../utils/DebugVisualizer';
@@ -32,12 +31,9 @@ export class FPSController {
   position: THREE.Vector3;
   jumpRequested: boolean;
   lastJumpTime: number;
-  // Shooting related properties
-  gun: THREE.Group;
   isShooting: boolean;
   lastShootTime: number;
   scene: THREE.Scene | null;
-  // Debug visualization
   debugVisualizer: DebugVisualizer | null = null;
   
   // Bullet properties
@@ -96,10 +92,6 @@ export class FPSController {
     this.moveLeft = false;
     this.moveRight = false;
     this.canJump = false;
-
-    // Create gun and add it to the camera
-    this.gun = createGun();
-    this.camera.add(this.gun);
 
     // Set up pointer lock controls
     this.setupPointerLock();
