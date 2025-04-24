@@ -7,6 +7,7 @@ import { createCube, createRandomCubes } from './objects/Cube';
 import { loadModel } from './objects/Model';
 import { InputHandler } from './input/InputHandler';
 import { updateVisualBullets } from './objects/BulletVisual';
+import Stats from 'stats.js';
 
 // Import Rapier directly - the plugins will handle the WASM loading
 import RAPIER from '@dimforge/rapier3d';
@@ -28,6 +29,11 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
+
+// Initialize stats.js
+const stats = new Stats();
+stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+document.body.appendChild(stats.dom);
 
 // Initialize Rapier physics
 let physics: {
@@ -195,6 +201,9 @@ function createStackedCubes(
 }
 
 function animate(time: number) {
+  // Begin stats measurement
+  stats.begin();
+
   const deltaTime = (time - lastTime) / 1000;
   lastTime = time;
 
@@ -231,6 +240,9 @@ function animate(time: number) {
 
   // Render scene
   renderer.render(scene, camera);
+
+  // End stats measurement
+  stats.end();
 
   requestAnimationFrame(animate);
 }
