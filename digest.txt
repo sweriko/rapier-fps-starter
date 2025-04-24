@@ -1,0 +1,1647 @@
+<goal>
+ 
+</goal>
+
+<output_requirements>
+- Don't be lazy, provide thorough, high-quality code.
+- Provide complete file contents for any modified or new files.
+- Write clean, well-documented code with appropriate error handling.
+- Never use ellipsis (...) or placeholder comments, as an excuse to omit code for brewity.
+</output_requirements>
+
+<context>
+    <codebase>
+Directory structure:
+└── /./
+    ├── index.html
+    ├── package.json
+    ├── src/
+    │   ├── controllers/
+    │   │   └── FPSController.ts
+    │   ├── input/
+    │   │   └── InputHandler.ts
+    │   ├── main.ts
+    │   ├── objects/
+    │   │   ├── Bullet.ts
+    │   │   ├── BulletVisual.ts
+    │   │   ├── Cube.ts
+    │   │   ├── Ground.ts
+    │   │   ├── Model.ts
+    │   │   └── Sky.ts
+    │   └── utils/
+    │       ├── DebugVisualizer.ts
+    │       ├── Lights.ts
+    │       └── Vector3Pool.ts
+    ├── tsconfig.json
+    └── vite.config.ts
+
+================================================
+File: /index.html
+================================================
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rapier3D Test</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html> 
+
+================================================
+File: /package.json
+================================================
+{
+  "name": "rapiertest",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@dimforge/rapier3d": "^0.15.1",
+    "three": "^0.158.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.158.0",
+    "typescript": "^5.2.2",
+    "vite": "^6.3.1",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.1"
+  }
+}
+
+
+================================================
+File: /src/controllers/FPSController.ts
+================================================
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d';
+import { castBulletRay } from '../objects/Bullet';
+import { createVisualBullet } from '../objects/BulletVisual';
+import { DebugVisualizer } from '../utils/DebugVisualizer';
+import { globalVector3Pool } from '../utils/Vector3Pool';
+
+// Interface for physics world
+interface PhysicsWorld {
+  world: RAPIER.World;
+  rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody>;
+}
+
+// FPS Controller class
+export class FPSController {
+  object: THREE.Object3D;
+  camera: THREE.Camera;
+  physics: PhysicsWorld;
+  rigidBody: RAPIER.RigidBody;
+  collider: RAPIER.Collider;
+  velocity: THREE.Vector3;
+  rotation: THREE.Euler;
+  moveForward: boolean;
+  moveBackward: boolean;
+  moveLeft: boolean;
+  moveRight: boolean;
+  canJump: boolean;
+  domElement: HTMLElement;
+  pitchObject: THREE.Object3D;
+  yawObject: THREE.Object3D;
+  isLocked: boolean;
+  position: THREE.Vector3;
+  jumpRequested: boolean;
+  lastJumpTime: number;
+  isShooting: boolean;
+  lastShootTime: number;
+  scene: THREE.Scene | null;
+  debugVisualizer: DebugVisualizer | null = null;
+  
+  // Bullet properties
+  bulletSpeed: number = 40;
+  bulletGravity: number = 9.81; // m/s²
+  bulletSize: number = 0.1;
+  bulletColor: number = 0xFFFF00;
+
+  constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }, domElement: HTMLElement) {
+    this.camera = camera;
+    this.physics = physics;
+    this.domElement = domElement;
+    this.isLocked = false;
+    this.jumpRequested = false;
+    this.lastJumpTime = 0;
+    this.isShooting = false;
+    this.lastShootTime = 0;
+    this.scene = null;
+
+    // Create a character controller
+    const position = new RAPIER.Vector3(0, 5, 10);
+    
+    // Create a dynamic rigid body for the player
+    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(position.x, position.y, position.z)
+      .setLinearDamping(0.1)
+      .setAngularDamping(0.9)
+      .setCcdEnabled(true);
+
+    this.rigidBody = physics.world.createRigidBody(bodyDesc);
+    
+    // Create a collider for the player (capsule shape)
+    const colliderDesc = RAPIER.ColliderDesc.capsule(0.9, 0.3)
+      .setDensity(1.0)
+      .setFriction(0.2);
+
+    this.collider = physics.world.createCollider(colliderDesc, this.rigidBody);
+
+    // Create a 3D object for the player
+    this.pitchObject = new THREE.Object3D();
+    this.pitchObject.add(camera);
+
+    this.yawObject = new THREE.Object3D();
+    this.yawObject.position.set(position.x, position.y, position.z);
+    this.yawObject.add(this.pitchObject);
+
+    this.object = this.yawObject;
+    this.position = this.yawObject.position;
+
+    // Initial values for movement
+    this.velocity = new THREE.Vector3();
+    this.rotation = new THREE.Euler();
+    
+    this.moveForward = false;
+    this.moveBackward = false;
+    this.moveLeft = false;
+    this.moveRight = false;
+    this.canJump = false;
+
+    // Set up pointer lock controls
+    this.setupPointerLock();
+    
+    // Set up keyboard and mouse input
+    document.addEventListener('keydown', this.onKeyDown.bind(this), false);
+    document.addEventListener('keyup', this.onKeyUp.bind(this), false);
+    document.addEventListener('mousedown', this.onMouseDown.bind(this), false);
+    document.addEventListener('mouseup', this.onMouseUp.bind(this), false);
+
+    // Lock rotations - prevent tipping over
+    this.rigidBody.lockRotations(true, true);
+  }
+
+  // Set the scene reference
+  setScene(scene: THREE.Scene) {
+    this.scene = scene;
+    
+    // Initialize debug visualizer
+    this.debugVisualizer = new DebugVisualizer(scene);
+  }
+
+  setupPointerLock() {
+    const that = this;
+    this.domElement.ownerDocument.addEventListener('click', function() {
+      that.domElement.requestPointerLock();
+    });
+
+    const lockChangeEvent = () => {
+      const doc = this.domElement.ownerDocument;
+      if (doc.pointerLockElement === this.domElement) {
+        this.isLocked = true;
+      } else {
+        this.isLocked = false;
+      }
+    };
+
+    const moveCallback = (event: MouseEvent) => {
+      if (!this.isLocked) return;
+
+      const movementX = event.movementX || 0;
+      const movementY = event.movementY || 0;
+
+      this.yawObject.rotation.y -= movementX * 0.002;
+      this.pitchObject.rotation.x -= movementY * 0.002;
+      
+      // Clamp the pitch to avoid flipping
+      this.pitchObject.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitchObject.rotation.x));
+    };
+
+    document.addEventListener('pointerlockchange', lockChangeEvent, false);
+    document.addEventListener('mousemove', moveCallback, false);
+  }
+
+  onKeyDown(event: KeyboardEvent) {
+    switch (event.code) {
+      case 'ArrowUp':
+      case 'KeyW':
+        this.moveForward = true;
+        break;
+      case 'ArrowLeft':
+      case 'KeyA':
+        this.moveLeft = true;
+        break;
+      case 'ArrowDown':
+      case 'KeyS':
+        this.moveBackward = true;
+        break;
+      case 'ArrowRight':
+      case 'KeyD':
+        this.moveRight = true;
+        break;
+      case 'Space':
+        // Just mark jump as requested - we'll handle it in update
+        this.jumpRequested = true;
+        break;
+    }
+  }
+
+  onKeyUp(event: KeyboardEvent) {
+    switch (event.code) {
+      case 'ArrowUp':
+      case 'KeyW':
+        this.moveForward = false;
+        break;
+      case 'ArrowLeft':
+      case 'KeyA':
+        this.moveLeft = false;
+        break;
+      case 'ArrowDown':
+      case 'KeyS':
+        this.moveBackward = false;
+        break;
+      case 'ArrowRight':
+      case 'KeyD':
+        this.moveRight = false;
+        break;
+      case 'Space':
+        this.jumpRequested = false;
+        break;
+    }
+  }
+
+  onMouseDown(event: MouseEvent) {
+    if (!this.isLocked) return;
+    
+    // Only handle left mouse button (button 0)
+    if (event.button === 0) {
+      this.isShooting = true;
+      this.shoot();
+    }
+  }
+
+  onMouseUp(event: MouseEvent) {
+    if (event.button === 0) {
+      this.isShooting = false;
+    }
+  }
+
+  shoot() {
+    if (!this.scene) return;
+    
+    const now = Date.now();
+    // Don't allow shooting faster than once every 200ms (5 shots per second)
+    if (now - this.lastShootTime < 200) return;
+    this.lastShootTime = now;
+    
+    // Get current camera position and direction
+    const cameraPosition = new THREE.Vector3();
+    this.camera.getWorldPosition(cameraPosition);
+    
+    // Calculate bullet direction - forward vector from camera
+    const bulletDirection = new THREE.Vector3(0, 0, -1);
+    bulletDirection.applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    
+    // Position the bullet slightly in front of the camera
+    const bulletOffset = 0.5; // Distance in front of the camera
+    const bulletPosition = {
+      x: cameraPosition.x + bulletDirection.x * bulletOffset,
+      y: cameraPosition.y + bulletDirection.y * bulletOffset,
+      z: cameraPosition.z + bulletDirection.z * bulletOffset
+    };
+    
+    // Create a visual bullet
+    if (this.scene) {
+      createVisualBullet(
+        this.scene,
+        bulletPosition,
+        bulletDirection,
+        this.bulletSpeed,
+        this.bulletColor,
+        this.bulletSize
+      );
+    }
+    
+    // Show bullet trajectory in debug mode
+    if (this.debugVisualizer && this.debugVisualizer.isActive()) {
+      // Create trajectory points for bullet path simulation
+      const points: THREE.Vector3[] = [];
+      const startPos = new THREE.Vector3(bulletPosition.x, bulletPosition.y, bulletPosition.z);
+      points.push(startPos.clone());
+      
+      // Simulate trajectory for visualization
+      const velocity = bulletDirection.clone().normalize().multiplyScalar(this.bulletSpeed);
+      const gravity = new THREE.Vector3(0, -this.bulletGravity, 0);
+      const simPos = startPos.clone();
+      const simVel = velocity.clone();
+      
+      // Create 50 points along trajectory
+      for (let i = 0; i < 50; i++) {
+        // Update velocity with gravity
+        simVel.add(gravity.clone().multiplyScalar(0.05));
+        // Update position
+        simPos.add(simVel.clone().multiplyScalar(0.05));
+        // Add point to trajectory
+        points.push(simPos.clone());
+      }
+      
+      // Draw the trajectory
+      this.debugVisualizer.drawTrajectory(points);
+    }
+    
+    // Calculate the hit after a delay using raycasting
+    // We'll simulate the bullet travel time based on distance
+    this.simulateBulletWithDelay(bulletPosition, bulletDirection);
+  }
+  
+  // Simulate a bullet with realistic physics and delayed hit detection
+  simulateBulletWithDelay(
+    startPosition: { x: number; y: number; z: number },
+    direction: THREE.Vector3,
+    maxTime: number = 5, // Maximum simulation time in seconds
+    timeStep: number = 0.1 // Physics simulation step - fixed timestep
+  ) {
+    // Reset the vector pool before we start using it
+    globalVector3Pool.reset();
+    
+    // Use pooled vectors for simulation
+    const velocity = globalVector3Pool.getFromVector(direction).normalize().multiplyScalar(this.bulletSpeed);
+    const gravity = globalVector3Pool.getSet(0, -this.bulletGravity, 0);
+    
+    // Current state - use pooled vectors
+    const position = globalVector3Pool.getSet(startPosition.x, startPosition.y, startPosition.z);
+    const currentVelocity = globalVector3Pool.getFromVector(velocity);
+    let time = 0;
+    
+    // Visual representation of bullet path for debugging
+    const trajectoryPoints: THREE.Vector3[] = [];
+    if (this.debugVisualizer && this.debugVisualizer.isActive()) {
+      trajectoryPoints.push(globalVector3Pool.getFromVector(position));
+    }
+    
+    // Function to simulate one step with fixed timestep
+    const simulateStep = () => {
+      // Check if we've gone too far
+      if (time >= maxTime) {
+        // Clean up and release any pooled vectors that were stored
+        globalVector3Pool.reset();
+        return;
+      }
+      
+      // Update time
+      time += timeStep;
+      
+      // Store previous position for ray casting - use a pooled vector
+      const prevPosition = globalVector3Pool.getFromVector(position);
+      
+      // Update velocity with gravity - avoid creating new vectors
+      currentVelocity.add(
+        globalVector3Pool.getFromVector(gravity).multiplyScalar(timeStep)
+      );
+      
+      // Update position - avoid creating new vectors
+      position.add(
+        globalVector3Pool.getFromVector(currentVelocity).multiplyScalar(timeStep)
+      );
+      
+      // Store point for debug visualization
+      if (this.debugVisualizer && this.debugVisualizer.isActive()) {
+        trajectoryPoints.push(globalVector3Pool.getFromVector(position));
+      }
+      
+      // Cast a ray for this step to check for collisions
+      const rayDirection = globalVector3Pool.getFromVector(position).sub(prevPosition).normalize();
+      const rayLength = position.distanceTo(prevPosition);
+      
+      // Create a ray from previous position to current position
+      const raycastResult = castBulletRay(
+        this.physics,
+        { x: prevPosition.x, y: prevPosition.y, z: prevPosition.z },
+        rayDirection,
+        rayLength,
+        this.rigidBody
+      );
+      
+      // If we hit something, apply the impact
+      if (raycastResult.hit && raycastResult.hitRigidBody) {
+        // Skip if we hit our own player rigid body
+        if (raycastResult.hitRigidBody === this.rigidBody) {
+          // Continue simulation for next step with delay
+          setTimeout(simulateStep, 50);
+          return;
+        }
+        
+        // Apply impulse to the hit object if it's a dynamic body
+        if (raycastResult.hitRigidBody.bodyType() === RAPIER.RigidBodyType.Dynamic) {
+          const impulseStrength = currentVelocity.length() * 0.5; // Scale impulse by velocity
+          
+          // Apply impulse at the hit point
+          raycastResult.hitRigidBody.applyImpulseAtPoint(
+            { 
+              x: currentVelocity.x * 0.5, 
+              y: currentVelocity.y * 0.5, 
+              z: currentVelocity.z * 0.5 
+            },
+            raycastResult.hitPoint!,
+            true
+          );
+          
+          // Add some random rotation for more realistic impact
+          raycastResult.hitRigidBody.applyTorqueImpulse(
+            {
+              x: (Math.random() - 0.5) * impulseStrength * 0.25,
+              y: (Math.random() - 0.5) * impulseStrength * 0.25,
+              z: (Math.random() - 0.5) * impulseStrength * 0.25
+            },
+            true
+          );
+        }
+        
+        // We hit something, visualize the trajectory in debug mode
+        if (this.debugVisualizer && this.debugVisualizer.isActive()) {
+          this.debugVisualizer.drawTrajectory(trajectoryPoints, 0xff0000);
+        }
+        
+        // Clean up and release pooled vectors
+        globalVector3Pool.reset();
+        
+        // Stop simulation
+        return;
+      }
+      
+      // Continue simulation for next step - add real delay between steps (50ms)
+      setTimeout(simulateStep, 50);
+    };
+    
+    // Start simulation
+    simulateStep();
+  }
+
+  update(deltaTime: number) {
+    if (!this.rigidBody) return;
+    
+    // Update debug visualizer if enabled
+    if (this.debugVisualizer && this.debugVisualizer.isActive()) {
+      // No need to call update, remove this code
+    }
+
+    // Calculate move direction from key presses
+    const direction = new THREE.Vector3();
+    const rotation = this.yawObject.rotation.y;
+
+    if (this.moveForward) direction.z = -1;
+    if (this.moveBackward) direction.z = 1;
+    if (this.moveLeft) direction.x = -1;
+    if (this.moveRight) direction.x = 1;
+    
+    // Normalize direction
+    if (direction.lengthSq() > 0) {
+      direction.normalize();
+    }
+
+    // Rotate direction based on camera rotation
+    direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotation);
+
+    // SIMPLIFIED MOVEMENT: Just apply velocity directly
+    const linvel = this.rigidBody.linvel();
+    const moveSpeed = 5.0; // Reasonable speed
+    
+    let newVelX = linvel.x;
+    let newVelZ = linvel.z;
+    
+    // Only override velocity when moving
+    if (direction.x !== 0) {
+      newVelX = direction.x * moveSpeed;
+    } else {
+      // Apply damping when not pressing any movement keys
+      newVelX *= 0.9;
+    }
+    
+    if (direction.z !== 0) {
+      newVelZ = direction.z * moveSpeed;
+    } else {
+      // Apply damping when not pressing any movement keys
+      newVelZ *= 0.9;
+    }
+    
+    // Check if we're on the ground using a very simple height test
+    const position = this.rigidBody.translation();
+    // Just check if Y is close to zero - simple but effective
+    const isGrounded = position.y < 1.5;
+    
+    this.canJump = isGrounded;
+    
+    // Handle jumping - simplified approach
+    let newVelY = linvel.y;
+    if (this.jumpRequested && isGrounded) {
+      newVelY = 8; // Jump velocity
+      this.jumpRequested = false;
+      this.lastJumpTime = Date.now();
+    }
+    
+    // Set the rigid body velocity
+    this.rigidBody.setLinvel({ x: newVelX, y: newVelY, z: newVelZ }, true);
+    
+    // Make sure we're not rotating around X or Z axes
+    const angvel = this.rigidBody.angvel();
+    this.rigidBody.setAngvel({ x: 0, y: angvel.y, z: 0 }, true);
+    
+    // Update Three.js object position from physics
+    const translation = this.rigidBody.translation();
+    this.position.set(translation.x, translation.y, translation.z);
+
+    // Handle continuous shooting
+    if (this.isShooting) {
+      this.shoot();
+    }
+  }
+} 
+
+================================================
+File: /src/input/InputHandler.ts
+================================================
+export class InputHandler {
+  private keys: Set<string> = new Set();
+  private debugTogglePressed: boolean = false;
+  
+  constructor() {
+    window.addEventListener('keydown', (e) => {
+      this.keys.add(e.code);
+    });
+    
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+    });
+  }
+  
+  public update(): void {
+    // Check for debug toggle (V key)
+    if (this.keys.has('KeyV') && !this.debugTogglePressed) {
+      this.debugTogglePressed = true;
+      document.dispatchEvent(new CustomEvent('toggle-debug'));
+    } else if (!this.keys.has('KeyV') && this.debugTogglePressed) {
+      this.debugTogglePressed = false;
+    }
+  }
+} 
+
+================================================
+File: /src/main.ts
+================================================
+import * as THREE from 'three';
+import { FPSController } from './controllers/FPSController';
+import { createGround } from './objects/Ground';
+import { createSky } from './objects/Sky';
+import { setupLights } from './utils/Lights';
+import { createCube, createRandomCubes } from './objects/Cube';
+import { loadModel } from './objects/Model';
+import { InputHandler } from './input/InputHandler';
+import { updateVisualBullets } from './objects/BulletVisual';
+
+// Import Rapier directly - the plugins will handle the WASM loading
+import RAPIER from '@dimforge/rapier3d';
+
+// Initialize scene, camera, and renderer
+const scene = new THREE.Scene();
+// Set explicit background color
+scene.background = new THREE.Color(0x87CEEB);
+// No fog for now until we get the basic scene working
+// scene.fog = new THREE.FogExp2(0x88BBFF, 0.0025);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ 
+  antialias: true,
+  alpha: false,
+  powerPreference: 'high-performance' 
+});
+renderer.setClearColor(0x87CEEB, 1);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// Initialize Rapier physics
+let physics: {
+  world: RAPIER.World;
+  rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody>;
+};
+
+let fpsController: FPSController;
+let inputHandler: InputHandler;
+let lastTime = 0;
+let cubes: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody }[] = [];
+// Bullets are now handled via raycasting
+
+// Initialize the game
+async function init() {
+  // Create physics world with collision event handling
+  physics = {
+    world: new RAPIER.World({ x: 0, y: -9.81, z: 0 }),
+    rigidBodies: new Map()
+  };
+
+  // Create ground
+  const ground = createGround(physics);
+  scene.add(ground);
+
+  // Create sky
+  const sky = createSky();
+  scene.add(sky);
+
+  // Setup lights
+  setupLights(scene);
+
+  // Load the destructible house model
+  try {
+    const { model } = await loadModel(
+      physics,
+      '/destructiblehouse.glb',  // Path to the model
+      { x: 8, y: 0, z: 0 },      // Position
+      3,                         // Scale (3x original size)
+      true                       // Static/fixed (like cubes)
+    );
+    scene.add(model);
+    console.log('Destructible house model loaded successfully');
+  } catch (error) {
+    console.error('Failed to load house model:', error);
+  }
+
+  // Create a stack of cubes in the center
+  const stackCubes = createStackedCubes(physics, 5, 5, { x: -8, y: 0, z: 0 });
+  cubes.push(...stackCubes);
+  stackCubes.forEach(cube => scene.add(cube.mesh));
+
+  // Create some random cubes around the scene
+  const randomCubes = createRandomCubes(physics, 20, 15, 8);
+  cubes.push(...randomCubes);
+  randomCubes.forEach(cube => scene.add(cube.mesh));
+
+  // Setup FPS controller
+  fpsController = new FPSController(camera, physics, renderer.domElement);
+  fpsController.position.set(0, 5, 10);
+  scene.add(fpsController.object);
+  
+  // Set the scene reference in the controller to allow bullet management
+  fpsController.setScene(scene);
+
+  // Initialize input handler
+  inputHandler = new InputHandler();
+  
+  // Listen for debug toggle event
+  document.addEventListener('toggle-debug', () => {
+    if (fpsController.debugVisualizer) {
+      fpsController.debugVisualizer.toggle();
+      console.log("Debug visualization:", fpsController.debugVisualizer.isActive() ? "enabled" : "disabled");
+    }
+  });
+
+  // Add crosshair
+  createCrosshair();
+
+  // Handle window resize
+  window.addEventListener('resize', onWindowResize);
+
+  // Start animation loop
+  requestAnimationFrame(animate);
+}
+
+// Add a simple crosshair to the center of the screen
+function createCrosshair() {
+  const crosshairSize = 20;
+  const crosshairThickness = 2;
+  
+  // Create container
+  const crosshair = document.createElement('div');
+  crosshair.style.position = 'absolute';
+  crosshair.style.top = '50%';
+  crosshair.style.left = '50%';
+  crosshair.style.transform = 'translate(-50%, -50%)';
+  crosshair.style.width = `${crosshairSize}px`;
+  crosshair.style.height = `${crosshairSize}px`;
+  crosshair.style.zIndex = '100';
+  
+  // Create horizontal line
+  const horizontalLine = document.createElement('div');
+  horizontalLine.style.position = 'absolute';
+  horizontalLine.style.top = '50%';
+  horizontalLine.style.left = '0';
+  horizontalLine.style.width = '100%';
+  horizontalLine.style.height = `${crosshairThickness}px`;
+  horizontalLine.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+  horizontalLine.style.transform = 'translateY(-50%)';
+  
+  // Create vertical line
+  const verticalLine = document.createElement('div');
+  verticalLine.style.position = 'absolute';
+  verticalLine.style.top = '0';
+  verticalLine.style.left = '50%';
+  verticalLine.style.width = `${crosshairThickness}px`;
+  verticalLine.style.height = '100%';
+  verticalLine.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+  verticalLine.style.transform = 'translateX(-50%)';
+  
+  // Add lines to crosshair
+  crosshair.appendChild(horizontalLine);
+  crosshair.appendChild(verticalLine);
+  
+  // Add crosshair to body
+  document.body.appendChild(crosshair);
+}
+
+// Create a stack of cubes
+function createStackedCubes(
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
+  width: number,
+  height: number,
+  position: { x: number, y: number, z: number }
+) {
+  const cubes = [];
+  const cubeSize = 1;
+  
+  // Create a stack of cubes
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width - (y % 2); x++) {
+      for (let z = 0; z < width - (y % 2); z++) {
+        // Alternate layers for stability
+        const offsetX = y % 2 === 0 ? 0 : cubeSize / 2;
+        const offsetZ = y % 2 === 0 ? 0 : cubeSize / 2;
+        
+        const cubePos = {
+          x: position.x + x * cubeSize + offsetX,
+          y: position.y + y * cubeSize + cubeSize / 2,
+          z: position.z + z * cubeSize + offsetZ
+        };
+        
+        // Use a consistent color per layer for a nice visual effect
+        const hue = (y / height) * 0.8;
+        const color = new THREE.Color().setHSL(hue, 0.8, 0.5).getHex();
+        
+        const cube = createCube(physics, cubePos, cubeSize, color);
+        cubes.push(cube);
+      }
+    }
+  }
+  
+  return cubes;
+}
+
+function animate(time: number) {
+  const deltaTime = (time - lastTime) / 1000;
+  lastTime = time;
+
+  // Step physics world
+  physics.world.step();
+
+  // Update input handler
+  inputHandler.update();
+
+  // Update controller
+  fpsController.update(deltaTime);
+  
+  // Update visual bullets
+  updateVisualBullets(deltaTime);
+
+  // Update cube positions based on physics
+  cubes.forEach(({ mesh, rigidBody }) => {
+    const position = rigidBody.translation();
+    mesh.position.set(position.x, position.y, position.z);
+    
+    const rotation = rigidBody.rotation();
+    mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+
+    // Check if cube fell out of bounds and reset it
+    if (position.y < -20) {
+      rigidBody.setTranslation(
+        { x: (Math.random() - 0.5) * 20, y: 20, z: (Math.random() - 0.5) * 20 },
+        true
+      );
+      rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      rigidBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  });
+
+  // Render scene
+  renderer.render(scene, camera);
+
+  requestAnimationFrame(animate);
+}
+
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// Start the game
+init().catch(console.error); 
+
+================================================
+File: /src/objects/Bullet.ts
+================================================
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d';
+import { globalVector3Pool } from '../utils/Vector3Pool';
+
+// Interface for raycast result
+export interface RaycastResult {
+  hit: boolean;
+  hitPoint?: { x: number; y: number; z: number };
+  hitDistance?: number;
+  hitRigidBody?: RAPIER.RigidBody;
+}
+
+/**
+ * Casts a ray in the physics world to simulate a bullet
+ * @param physics Physics world and rigid bodies map
+ * @param origin Starting point of the ray
+ * @param direction Direction vector for the ray (will be normalized)
+ * @param distance Maximum distance for the ray
+ * @param ignoreBody Optional rigid body to ignore (e.g. player's own body)
+ * @returns Result of the raycast with hit information
+ */
+export function castBulletRay(
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
+  origin: { x: number; y: number; z: number },
+  direction: THREE.Vector3,
+  distance: number,
+  ignoreBody?: RAPIER.RigidBody
+): RaycastResult {
+  // Normalize direction vector - use pooled vector
+  const normalizedDir = globalVector3Pool.getFromVector(direction).normalize();
+  
+  // Convert to Rapier vector
+  const rayDir = { x: normalizedDir.x, y: normalizedDir.y, z: normalizedDir.z };
+  
+  // Cast the ray
+  const ray = new RAPIER.Ray(origin, rayDir);
+  const hit = physics.world.castRayAndGetNormal(
+    ray, 
+    distance, 
+    true // Solid hit only
+  );
+  
+  // Default result (no hit)
+  const result: RaycastResult = { hit: false };
+  
+  // Check if we hit something
+  if (hit) {
+    // If we should ignore this hit because it's the player's body
+    const hitRigidBody = hit.collider.parent();
+    if (ignoreBody && hitRigidBody && hitRigidBody === ignoreBody) {
+      return result;
+    }
+    
+    // Get hit information
+    const hitPoint = ray.pointAt(hit.timeOfImpact);
+    
+    result.hit = true;
+    result.hitPoint = hitPoint;
+    result.hitDistance = hit.timeOfImpact;
+    result.hitRigidBody = hitRigidBody || undefined;
+  }
+  
+  return result;
+}
+
+// Trail function removed 
+
+================================================
+File: /src/objects/BulletVisual.ts
+================================================
+import * as THREE from 'three';
+
+// Interface for visual bullet properties
+export interface VisualBullet {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  creationTime: number;
+  lifetime: number;
+}
+
+// Collection to track all visual bullets
+const visualBullets: VisualBullet[] = [];
+
+/**
+ * Creates a visual bullet with physics simulation
+ * @param scene THREE.Scene to add the bullet to
+ * @param position Starting position of the bullet
+ * @param direction Direction vector for the bullet
+ * @param speed Initial speed of the bullet in units per second
+ * @param color Color of the bullet (hex value)
+ * @param size Size of the bullet (diameter)
+ * @param lifetime How long the bullet should exist (in milliseconds)
+ * @returns The created visual bullet object
+ */
+export function createVisualBullet(
+  scene: THREE.Scene,
+  position: { x: number; y: number; z: number },
+  direction: THREE.Vector3,
+  speed: number = 40,
+  color: number = 0xFFFF00,
+  size: number = 0.1,
+  lifetime: number = 10000
+): VisualBullet {
+  // Create a small sphere for the bullet
+  const geometry = new THREE.SphereGeometry(size, 8, 8);
+  const material = new THREE.MeshBasicMaterial({ color });
+  const bulletMesh = new THREE.Mesh(geometry, material);
+  
+  // Set the bullet position
+  bulletMesh.position.set(position.x, position.y, position.z);
+  
+  // Add to scene
+  scene.add(bulletMesh);
+  
+  // Calculate initial velocity
+  const velocity = direction.clone().normalize().multiplyScalar(speed);
+  
+  // Create bullet object
+  const bullet: VisualBullet = {
+    mesh: bulletMesh,
+    velocity,
+    creationTime: Date.now(),
+    lifetime
+  };
+  
+  // Add to bullets array
+  visualBullets.push(bullet);
+  
+  return bullet;
+}
+
+/**
+ * Updates all visual bullets based on physics
+ * @param deltaTime Time elapsed since last update in seconds
+ * @param gravity Gravity force applied to bullets (y-axis)
+ */
+export function updateVisualBullets(deltaTime: number, gravity: number = 9.81) {
+  const now = Date.now();
+  const bulletsToRemove: VisualBullet[] = [];
+  
+  // Update each bullet
+  for (const bullet of visualBullets) {
+    // Check if bullet has exceeded its lifetime
+    if (now - bullet.creationTime > bullet.lifetime) {
+      bulletsToRemove.push(bullet);
+      continue;
+    }
+    
+    // Apply gravity to velocity
+    bullet.velocity.y -= gravity * deltaTime;
+    
+    // Update position based on velocity
+    bullet.mesh.position.x += bullet.velocity.x * deltaTime;
+    bullet.mesh.position.y += bullet.velocity.y * deltaTime;
+    bullet.mesh.position.z += bullet.velocity.z * deltaTime;
+  }
+  
+  // Remove expired bullets
+  for (const bullet of bulletsToRemove) {
+    const index = visualBullets.indexOf(bullet);
+    if (index !== -1) {
+      // Remove from scene
+      bullet.mesh.removeFromParent();
+      // Remove from material
+      (bullet.mesh.material as THREE.Material).dispose();
+      // Remove geometry
+      bullet.mesh.geometry.dispose();
+      // Remove from array
+      visualBullets.splice(index, 1);
+    }
+  }
+}
+
+/**
+ * Clears all visual bullets from the scene
+ */
+export function clearAllVisualBullets() {
+  for (const bullet of visualBullets) {
+    bullet.mesh.removeFromParent();
+    (bullet.mesh.material as THREE.Material).dispose();
+    bullet.mesh.geometry.dispose();
+  }
+  
+  // Clear the array
+  visualBullets.length = 0;
+}
+
+/**
+ * Returns the current count of visual bullets
+ */
+export function getVisualBulletCount(): number {
+  return visualBullets.length;
+} 
+
+================================================
+File: /src/objects/Cube.ts
+================================================
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d';
+
+// Create a single physics-enabled cube
+export function createCube(
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
+  position: { x: number; y: number; z: number },
+  size: number = 1,
+  color: number = Math.random() * 0xffffff
+) {
+  // Create cube geometry and material
+  const geometry = new THREE.BoxGeometry(size, size, size);
+  const material = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.7,
+    metalness: 0.3
+  });
+
+  // Create mesh
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.position.set(position.x, position.y, position.z);
+
+  // Create rigid body
+  const rigidBodyDesc = RAPIER.RigidBodyDesc.dynamic()
+    .setTranslation(position.x, position.y, position.z);
+  
+  const rigidBody = physics.world.createRigidBody(rigidBodyDesc);
+
+  // Create collider (slightly smaller than the visual cube to avoid clipping)
+  const colliderDesc = RAPIER.ColliderDesc.cuboid(size/2 * 0.98, size/2 * 0.98, size/2 * 0.98)
+    .setRestitution(0.4)  // Bounciness
+    .setFriction(0.5);    // Friction
+
+  physics.world.createCollider(colliderDesc, rigidBody);
+  
+  // Add to physics tracking
+  physics.rigidBodies.set(mesh, rigidBody);
+
+  return { mesh, rigidBody };
+}
+
+// Create multiple random cubes
+export function createRandomCubes(
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
+  count: number = 20,
+  area: number = 20,
+  heightRange: number = 10
+) {
+  const cubes = [];
+  
+  for (let i = 0; i < count; i++) {
+    // Random position within area
+    const position = {
+      x: (Math.random() - 0.5) * area,
+      y: 2 + Math.random() * heightRange,
+      z: (Math.random() - 0.5) * area
+    };
+    
+    // Random size between 0.5 and 2
+    const size = 0.5 + Math.random() * 1.5;
+    
+    // Random color
+    const color = Math.random() * 0xffffff;
+    
+    const cube = createCube(physics, position, size, color);
+    cubes.push(cube);
+  }
+  
+  return cubes;
+} 
+
+================================================
+File: /src/objects/Ground.ts
+================================================
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d';
+
+// Create a ground plane with physics
+export function createGround(physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }) {
+  // Create a large flat plane for the ground
+  const groundGeometry = new THREE.PlaneGeometry(100, 100);
+  
+  // Rotate it to be horizontal (by default PlaneGeometry is vertical)
+  groundGeometry.rotateX(-Math.PI / 2);
+  
+  // Create a material for the ground
+  const groundMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1a5f2a,  // Green color
+    roughness: 0.8,
+    metalness: 0.2,
+  });
+  
+  // Create the mesh
+  const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+  groundMesh.receiveShadow = true;
+  
+  // Create a rigid body for the ground
+  const groundBodyDesc = RAPIER.RigidBodyDesc.fixed();
+  const groundBody = physics.world.createRigidBody(groundBodyDesc);
+  
+  // Create a collider for the ground
+  const groundColliderDesc = RAPIER.ColliderDesc.cuboid(50, 0.1, 50);
+  physics.world.createCollider(groundColliderDesc, groundBody);
+  
+  // Add the rigid body to our collection, linked to the mesh
+  physics.rigidBodies.set(groundMesh, groundBody);
+  
+  return groundMesh;
+} 
+
+================================================
+File: /src/objects/Model.ts
+================================================
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import RAPIER from '@dimforge/rapier3d';
+
+// Load a GLTF model with physics collider
+export async function loadModel(
+  physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> },
+  modelPath: string,
+  position: { x: number; y: number; z: number },
+  scale: number = 1,
+  isStatic: boolean = true
+) {
+  return new Promise<{ model: THREE.Group, rigidBody: RAPIER.RigidBody }>((resolve, reject) => {
+    const loader = new GLTFLoader();
+    
+    loader.load(
+      modelPath,
+      (gltf) => {
+        const model = gltf.scene;
+        
+        // Scale the model
+        model.scale.set(scale, scale, scale);
+        
+        // Set position
+        model.position.set(position.x, position.y, position.z);
+        
+        // Enable shadows
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        
+        // Create a rigid body for the model
+        const rigidBodyDesc = isStatic 
+          ? RAPIER.RigidBodyDesc.fixed()
+          : RAPIER.RigidBodyDesc.dynamic();
+        
+        rigidBodyDesc.setTranslation(position.x, position.y, position.z);
+        const rigidBody = physics.world.createRigidBody(rigidBodyDesc);
+        
+        // Create a simplified box collider based on model's bounding box
+        const bbox = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        
+        // Scale the dimensions to match the model's scale
+        const sizeX = size.x * 0.95; // Slightly smaller to avoid clipping
+        const sizeY = size.y * 0.95;
+        const sizeZ = size.z * 0.95;
+        
+        // Calculate the collider offset relative to the model position
+        const center = new THREE.Vector3();
+        bbox.getCenter(center);
+        const offsetX = center.x - position.x;
+        const offsetY = center.y - position.y;
+        const offsetZ = center.z - position.z;
+        
+        // Create a box collider with proper size and offset
+        const colliderDesc = RAPIER.ColliderDesc.cuboid(sizeX/2, sizeY/2, sizeZ/2)
+          .setTranslation(offsetX, offsetY, offsetZ)
+          .setRestitution(0.4)
+          .setFriction(0.5);
+        
+        physics.world.createCollider(colliderDesc, rigidBody);
+        
+        // For tracking physics
+        physics.rigidBodies.set(model, rigidBody);
+        
+        resolve({ model, rigidBody });
+      },
+      undefined, // onProgress callback not needed
+      (error) => {
+        console.error('Error loading model:', error);
+        reject(error);
+      }
+    );
+  });
+} 
+
+================================================
+File: /src/objects/Sky.ts
+================================================
+import * as THREE from 'three';
+
+// Create a simple sky background with basic colors
+export function createSky() {
+  // Create a group to hold our sky elements
+  const skyGroup = new THREE.Group();
+  
+  // 1. Simple colored backdrop sphere
+  const skyGeometry = new THREE.SphereGeometry(400, 32, 15);
+  skyGeometry.scale(-1, 1, 1);
+  
+  const skyMaterial = new THREE.MeshBasicMaterial({
+    color: 0x87CEEB,
+    side: THREE.BackSide
+  });
+  
+  const skyMesh = new THREE.Mesh(skyGeometry, skyMaterial);
+  skyGroup.add(skyMesh);
+  
+  return skyGroup;
+} 
+
+================================================
+File: /src/utils/DebugVisualizer.ts
+================================================
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d';
+import { globalVector3Pool } from './Vector3Pool';
+
+/**
+ * Debug visualizer class for rendering physics objects and trajectories
+ */
+export class DebugVisualizer {
+  private scene: THREE.Scene;
+  private active: boolean = false;
+  private meshes: THREE.Mesh[] = [];
+  private lines: THREE.Line[] = [];
+  
+  constructor(scene: THREE.Scene) {
+    this.scene = scene;
+  }
+  
+  /**
+   * Toggle debug visualization on/off
+   */
+  public toggle(): boolean {
+    this.active = !this.active;
+    
+    // Hide all meshes when inactive
+    for (const mesh of this.meshes) {
+      mesh.visible = this.active;
+    }
+    
+    // Hide all lines when inactive
+    for (const line of this.lines) {
+      line.visible = this.active;
+    }
+    
+    return this.active;
+  }
+  
+  /**
+   * Clear all debug visualizations
+   */
+  public clear(): void {
+    // Remove all meshes
+    for (const mesh of this.meshes) {
+      this.scene.remove(mesh);
+      if (mesh.material instanceof THREE.Material) {
+        mesh.material.dispose();
+      } else if (Array.isArray(mesh.material)) {
+        for (const material of mesh.material) {
+          material.dispose();
+        }
+      }
+      mesh.geometry.dispose();
+    }
+    
+    // Remove all lines
+    for (const line of this.lines) {
+      this.scene.remove(line);
+      if (line.material instanceof THREE.Material) {
+        line.material.dispose();
+      }
+      line.geometry.dispose();
+    }
+    
+    this.meshes = [];
+    this.lines = [];
+  }
+  
+  /**
+   * Visualize a Rapier collider
+   * @param collider Rapier collider to visualize
+   * @param color Color of the visualization
+   */
+  public visualizeCollider(collider: RAPIER.Collider, color: number = 0x00ff00): void {
+    const position = collider.translation();
+    const rotation = collider.rotation();
+    
+    let mesh: THREE.Mesh;
+    
+    // Create appropriate geometry based on collider type
+    switch (collider.shape.type) {
+      case RAPIER.ShapeType.Cuboid:
+        const cuboid = collider.shape as any;
+        const halfExtents = cuboid.halfExtents;
+        const geometry = new THREE.BoxGeometry(
+          halfExtents.x * 2, 
+          halfExtents.y * 2, 
+          halfExtents.z * 2
+        );
+        mesh = new THREE.Mesh(
+          geometry,
+          new THREE.MeshBasicMaterial({ 
+            color, 
+            wireframe: true, 
+            transparent: true, 
+            opacity: 0.3 
+          })
+        );
+        break;
+        
+      case RAPIER.ShapeType.Ball:
+        const ball = collider.shape as any;
+        const radius = ball.radius;
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(radius, 16, 16),
+          new THREE.MeshBasicMaterial({ 
+            color, 
+            wireframe: true, 
+            transparent: true, 
+            opacity: 0.3 
+          })
+        );
+        break;
+        
+      case RAPIER.ShapeType.Capsule:
+        const capsule = collider.shape as any;
+        // Combine a cylinder and two spheres for capsule visualization
+        const halfHeight = capsule.halfHeight;
+        const capsuleRadius = capsule.radius;
+        
+        const capsuleGroup = new THREE.Group();
+        
+        // Cylinder body
+        const cylinder = new THREE.Mesh(
+          new THREE.CylinderGeometry(capsuleRadius, capsuleRadius, halfHeight * 2, 16),
+          new THREE.MeshBasicMaterial({ 
+            color, 
+            wireframe: true, 
+            transparent: true, 
+            opacity: 0.3 
+          })
+        );
+        capsuleGroup.add(cylinder);
+        
+        // Top sphere
+        const topSphere = new THREE.Mesh(
+          new THREE.SphereGeometry(capsuleRadius, 16, 16),
+          new THREE.MeshBasicMaterial({ 
+            color, 
+            wireframe: true, 
+            transparent: true, 
+            opacity: 0.3 
+          })
+        );
+        topSphere.position.y = halfHeight;
+        capsuleGroup.add(topSphere);
+        
+        // Bottom sphere
+        const bottomSphere = new THREE.Mesh(
+          new THREE.SphereGeometry(capsuleRadius, 16, 16),
+          new THREE.MeshBasicMaterial({ 
+            color, 
+            wireframe: true, 
+            transparent: true, 
+            opacity: 0.3 
+          })
+        );
+        bottomSphere.position.y = -halfHeight;
+        capsuleGroup.add(bottomSphere);
+        
+        // Add the capsule group to the scene directly
+        capsuleGroup.position.set(position.x, position.y, position.z);
+        capsuleGroup.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+        capsuleGroup.visible = this.active;
+        this.scene.add(capsuleGroup);
+        
+        // Skip the rest of the function since we already added the capsule group
+        return;
+        
+      default:
+        // Default fallback - just create a small sphere at the collider position
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.1, 8, 8),
+          new THREE.MeshBasicMaterial({ 
+            color: 0xff0000, 
+            wireframe: true, 
+            transparent: true, 
+            opacity: 0.3 
+          })
+        );
+        break;
+    }
+    
+    // Set position and rotation
+    mesh.position.set(position.x, position.y, position.z);
+    mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+    
+    // Hide if debug is inactive
+    mesh.visible = this.active;
+    
+    // Add to scene and track
+    this.scene.add(mesh);
+    this.meshes.push(mesh);
+  }
+  
+  /**
+   * Draw a trajectory line for visual debugging
+   * @param points Array of points defining the trajectory
+   * @param color Color of the line
+   */
+  public drawTrajectory(points: THREE.Vector3[], color: number = 0xff0000): void {
+    if (points.length < 2) return;
+    
+    const material = new THREE.LineBasicMaterial({ color });
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const line = new THREE.Line(geometry, material);
+    
+    // Hide if debug is inactive
+    line.visible = this.active;
+    
+    // Add to scene and track
+    this.scene.add(line);
+    this.lines.push(line);
+    
+    // Reset vector pool after creating the line
+    globalVector3Pool.reset();
+  }
+  
+  /**
+   * Create ray visualization for a specific distance
+   * @param origin Starting point of the ray
+   * @param direction Direction vector (will be normalized)
+   * @param distance Length of the ray visualization
+   * @param color Color of the ray
+   */
+  public visualizeRay(
+    origin: THREE.Vector3, 
+    direction: THREE.Vector3,
+    distance: number,
+    color: number = 0xff0000
+  ): void {
+    // Use vector pool
+    const points = [
+      globalVector3Pool.getFromVector(origin),
+      globalVector3Pool.getFromVector(origin).add(
+        globalVector3Pool.getFromVector(direction).normalize().multiplyScalar(distance)
+      )
+    ];
+    
+    this.drawTrajectory(points, color);
+  }
+  
+  /**
+   * Check if debug visualization is active
+   */
+  public isActive(): boolean {
+    return this.active;
+  }
+} 
+
+================================================
+File: /src/utils/Lights.ts
+================================================
+import * as THREE from 'three';
+
+// Setup scene lighting - simplified version
+export function setupLights(scene: THREE.Scene) {
+  // Add a very strong ambient light for overall scene brightness
+  const ambientLight = new THREE.AmbientLight(0xFFFFFF, 1.0);
+  scene.add(ambientLight);
+  
+  // Simple directional light for shadows
+  const dirLight = new THREE.DirectionalLight(0xFFFFFF, 1.0);
+  dirLight.position.set(5, 10, 7.5);
+  scene.add(dirLight);
+} 
+
+================================================
+File: /src/utils/Vector3Pool.ts
+================================================
+import * as THREE from 'three';
+
+/**
+ * A pool of reusable THREE.Vector3 objects to reduce garbage collection
+ */
+export class Vector3Pool {
+  private pool: THREE.Vector3[] = [];
+  private index: number = 0;
+  
+  constructor(initialSize: number = 100) {
+    // Pre-allocate vectors
+    for (let i = 0; i < initialSize; i++) {
+      this.pool.push(new THREE.Vector3());
+    }
+  }
+
+  /**
+   * Get a Vector3 from the pool
+   */
+  get(): THREE.Vector3 {
+    if (this.index >= this.pool.length) {
+      // Expand pool if needed
+      this.pool.push(new THREE.Vector3());
+    }
+    
+    return this.pool[this.index++];
+  }
+
+  /**
+   * Get a Vector3 and set its values
+   */
+  getSet(x: number, y: number, z: number): THREE.Vector3 {
+    return this.get().set(x, y, z);
+  }
+
+  /**
+   * Create a Vector3 from another Vector3 (cloning)
+   */
+  getFromVector(v: THREE.Vector3): THREE.Vector3 {
+    return this.get().copy(v);
+  }
+
+  /**
+   * Reset the pool for reuse
+   * Call this at the end of operations that used vectors from the pool
+   */
+  reset(): void {
+    this.index = 0;
+  }
+}
+
+// Create a global instance for easy access
+export const globalVector3Pool = new Vector3Pool(); 
+
+================================================
+File: /tsconfig.json
+================================================
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+} 
+
+================================================
+File: /vite.config.ts
+================================================
+import { defineConfig } from 'vite';
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
+
+export default defineConfig({
+  plugins: [
+    wasm(),
+    topLevelAwait()
+  ],
+  build: {
+    target: 'esnext',
+  },
+  server: {
+    host: true
+  }
+}); 
+    </codebase>
+</context>
