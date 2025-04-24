@@ -7,7 +7,7 @@ import RAPIER from '@dimforge/rapier3d';
 export class DebugVisualizer {
   private scene: THREE.Scene;
   private active: boolean = false;
-  private meshes: THREE.Mesh[] = [];
+  private objects: THREE.Object3D[] = [];
   private lines: THREE.Line[] = [];
   private tempVector: THREE.Vector3 = new THREE.Vector3();
   
@@ -21,9 +21,9 @@ export class DebugVisualizer {
   public toggle(): boolean {
     this.active = !this.active;
     
-    // Hide all meshes when inactive
-    for (const mesh of this.meshes) {
-      mesh.visible = this.active;
+    // Hide all 3D objects when inactive
+    for (const obj of this.objects) {
+      obj.visible = this.active;
     }
     
     // Hide all lines when inactive
@@ -38,17 +38,19 @@ export class DebugVisualizer {
    * Clear all debug visualizations
    */
   public clear(): void {
-    // Remove all meshes
-    for (const mesh of this.meshes) {
-      this.scene.remove(mesh);
-      if (mesh.material instanceof THREE.Material) {
-        mesh.material.dispose();
-      } else if (Array.isArray(mesh.material)) {
-        for (const material of mesh.material) {
-          material.dispose();
+    // Remove all 3D objects
+    for (const obj of this.objects) {
+      this.scene.remove(obj);
+      if (obj instanceof THREE.Mesh) {
+        if (obj.material instanceof THREE.Material) {
+          obj.material.dispose();
+        } else if (Array.isArray(obj.material)) {
+          for (const material of obj.material) {
+            material.dispose();
+          }
         }
+        obj.geometry.dispose();
       }
-      mesh.geometry.dispose();
     }
     
     // Remove all lines
@@ -60,7 +62,7 @@ export class DebugVisualizer {
       line.geometry.dispose();
     }
     
-    this.meshes = [];
+    this.objects = [];
     this.lines = [];
   }
   
@@ -162,6 +164,9 @@ export class DebugVisualizer {
         capsuleGroup.visible = this.active;
         this.scene.add(capsuleGroup);
         
+        // Add to tracked objects for proper toggling
+        this.objects.push(capsuleGroup);
+        
         // Skip the rest of the function since we already added the capsule group
         return;
         
@@ -188,7 +193,7 @@ export class DebugVisualizer {
     
     // Add to scene and track
     this.scene.add(mesh);
-    this.meshes.push(mesh);
+    this.objects.push(mesh);
   }
   
   /**
@@ -237,5 +242,29 @@ export class DebugVisualizer {
    */
   public isActive(): boolean {
     return this.active;
+  }
+  
+  /**
+   * Update player capsule visualization without recreating it
+   * @param collider The player's capsule collider
+   */
+  public updatePlayerVisualization(collider: RAPIER.Collider): void {
+    if (!this.active) return;
+    
+    const position = collider.translation();
+    const rotation = collider.rotation();
+    
+    // Find the first capsule group - assuming it's the player
+    for (const obj of this.objects) {
+      if (obj instanceof THREE.Group) {
+        // Update position and rotation
+        obj.position.set(position.x, position.y, position.z);
+        obj.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+        return; // Stop after updating the first group
+      }
+    }
+    
+    // If no capsule group exists yet, create one
+    this.visualizeCollider(collider, 0x00ffff);
   }
 } 

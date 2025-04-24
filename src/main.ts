@@ -110,6 +110,9 @@ async function init() {
     }
   });
 
+  // Add help message to console
+  console.log("Press 'V' key to toggle debug visualization (including player capsule collider)");
+
   // Add crosshair
   createCrosshair();
 

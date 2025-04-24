@@ -153,6 +153,11 @@ export class FPSController {
     
     // Initialize debug visualizer
     this.debugVisualizer = new DebugVisualizer(scene);
+    
+    // Visualize the player's capsule collider when in debug mode
+    if (this.debugVisualizer && this.collider) {
+      this.debugVisualizer.visualizeCollider(this.collider, 0x00ffff); // Use cyan color for player
+    }
   }
 
   setupPointerLock() {
@@ -598,6 +603,11 @@ export class FPSController {
     
     // Update Three.js object position
     this.position.set(newPos.x, newPos.y, newPos.z);
+    
+    // Update the collider visualization if debug is active
+    if (this.scene && this.debugVisualizer && this.collider) {
+      this.debugVisualizer.updatePlayerVisualization(this.collider);
+    }
     
     // Handle interactions with dynamic rigid bodies (optimized to run less frequently)
     this.bodyQueryCounter++;
