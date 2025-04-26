@@ -6,7 +6,6 @@ import { setupLights } from './utils/Lights';
 import { createCube, createRandomCubes } from './objects/Cube';
 import { loadModel } from './objects/Model';
 import { InputHandler } from './input/InputHandler';
-import { updateVisualBullets } from './objects/BulletVisual';
 import Stats from 'stats.js';
 
 // Import Rapier directly - the plugins will handle the WASM loading
@@ -45,7 +44,6 @@ let fpsController: FPSController;
 let inputHandler: InputHandler;
 let lastTime = 0;
 let cubes: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody }[] = [];
-// Bullets are now handled via raycasting
 
 // Initialize the game
 async function init() {
@@ -96,7 +94,7 @@ async function init() {
   fpsController.position.set(0, 5, 10);
   scene.add(fpsController.object);
   
-  // Set the scene reference in the controller to allow bullet management
+  // Set the scene reference in the controller
   fpsController.setScene(scene);
 
   // Initialize input handler
@@ -113,57 +111,11 @@ async function init() {
   // Add help message to console
   console.log("Press 'V' key to toggle debug visualization (including player capsule collider)");
 
-  // Add crosshair
-  createCrosshair();
-
   // Handle window resize
   window.addEventListener('resize', onWindowResize);
 
   // Start animation loop
   requestAnimationFrame(animate);
-}
-
-// Add a simple crosshair to the center of the screen
-function createCrosshair() {
-  const crosshairSize = 20;
-  const crosshairThickness = 2;
-  
-  // Create container
-  const crosshair = document.createElement('div');
-  crosshair.style.position = 'absolute';
-  crosshair.style.top = '50%';
-  crosshair.style.left = '50%';
-  crosshair.style.transform = 'translate(-50%, -50%)';
-  crosshair.style.width = `${crosshairSize}px`;
-  crosshair.style.height = `${crosshairSize}px`;
-  crosshair.style.zIndex = '100';
-  
-  // Create horizontal line
-  const horizontalLine = document.createElement('div');
-  horizontalLine.style.position = 'absolute';
-  horizontalLine.style.top = '50%';
-  horizontalLine.style.left = '0';
-  horizontalLine.style.width = '100%';
-  horizontalLine.style.height = `${crosshairThickness}px`;
-  horizontalLine.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-  horizontalLine.style.transform = 'translateY(-50%)';
-  
-  // Create vertical line
-  const verticalLine = document.createElement('div');
-  verticalLine.style.position = 'absolute';
-  verticalLine.style.top = '0';
-  verticalLine.style.left = '50%';
-  verticalLine.style.width = `${crosshairThickness}px`;
-  verticalLine.style.height = '100%';
-  verticalLine.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-  verticalLine.style.transform = 'translateX(-50%)';
-  
-  // Add lines to crosshair
-  crosshair.appendChild(horizontalLine);
-  crosshair.appendChild(verticalLine);
-  
-  // Add crosshair to body
-  document.body.appendChild(crosshair);
 }
 
 // Create a stack of cubes
@@ -218,9 +170,6 @@ function animate(time: number) {
 
   // Update controller
   fpsController.update(deltaTime);
-  
-  // Update visual bullets
-  updateVisualBullets(deltaTime);
 
   // Update cube positions based on physics
   cubes.forEach(({ mesh, rigidBody }) => {

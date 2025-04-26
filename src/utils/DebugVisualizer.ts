@@ -9,7 +9,6 @@ export class DebugVisualizer {
   private active: boolean = false;
   private objects: THREE.Object3D[] = [];
   private lines: THREE.Line[] = [];
-  private tempVector: THREE.Vector3 = new THREE.Vector3();
   
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -197,11 +196,11 @@ export class DebugVisualizer {
   }
   
   /**
-   * Draw a trajectory line for visual debugging
-   * @param points Array of points defining the trajectory
+   * Draw a path line for visual debugging
+   * @param points Array of points defining the path
    * @param color Color of the line
    */
-  public drawTrajectory(points: THREE.Vector3[], color: number = 0xff0000): void {
+  public drawPath(points: THREE.Vector3[], color: number = 0xff0000): void {
     if (points.length < 2) return;
     
     const material = new THREE.LineBasicMaterial({ color });
@@ -214,27 +213,6 @@ export class DebugVisualizer {
     // Add to scene and track
     this.scene.add(line);
     this.lines.push(line);
-  }
-  
-  /**
-   * Create ray visualization for a specific distance
-   * @param origin Starting point of the ray
-   * @param direction Direction vector (will be normalized)
-   * @param distance Length of the ray visualization
-   * @param color Color of the ray
-   */
-  public visualizeRay(
-    origin: THREE.Vector3, 
-    direction: THREE.Vector3,
-    distance: number,
-    color: number = 0xff0000
-  ): void {
-    const points = [
-      origin.clone(),
-      origin.clone().add(direction.clone().normalize().multiplyScalar(distance))
-    ];
-    
-    this.drawTrajectory(points, color);
   }
   
   /**

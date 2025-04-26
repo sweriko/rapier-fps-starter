@@ -1,7 +1,5 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d';
-import { castBulletRay } from '../objects/Bullet';
-import { createVisualBullet } from '../objects/BulletVisual';
 import { DebugVisualizer } from '../utils/DebugVisualizer';
 
 // Interface for physics world
@@ -41,8 +39,6 @@ export class FPSController {
   position: THREE.Vector3;
   jumpRequested: boolean;
   lastJumpTime: number;
-  isShooting: boolean;
-  lastShootTime: number;
   scene: THREE.Scene | null;
   debugVisualizer: DebugVisualizer | null = null;
   
@@ -68,12 +64,6 @@ export class FPSController {
   maxSlideAngle: number = 0.8; // ~45 degrees
   bodyQueryInterval: number = 5; // Only perform body queries every N frames
   bodyQueryCounter: number = 0;
-  
-  // Bullet properties
-  bulletSpeed: number = 40;
-  bulletGravity: number = 9.81; // m/s²
-  bulletSize: number = 0.1;
-  bulletColor: number = 0xFFFF00;
 
   constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }, domElement: HTMLElement) {
     this.camera = camera;
@@ -82,8 +72,6 @@ export class FPSController {
     this.isLocked = false;
     this.jumpRequested = false;
     this.lastJumpTime = 0;
-    this.isShooting = false;
-    this.lastShootTime = 0;
     this.scene = null;
 
     // Create a character controller
@@ -244,262 +232,12 @@ export class FPSController {
 
   onMouseDown(event: MouseEvent) {
     if (!this.isLocked) return;
-    
-    // Only handle left mouse button (button 0)
-    if (event.button === 0) {
-      this.isShooting = true;
-      this.shoot();
-    }
+    // Mouse down handling can be implemented here if needed
   }
 
   onMouseUp(event: MouseEvent) {
-    if (event.button === 0) {
-      this.isShooting = false;
-    }
-  }
-
-  shoot() {
-    if (!this.scene) return;
-    
-    const now = Date.now();
-    // Don't allow shooting faster than once every 200ms (5 shots per second)
-    if (now - this.lastShootTime < 200) return;
-    this.lastShootTime = now;
-    
-    // Get current camera position and direction
-    const cameraPosition = new THREE.Vector3();
-    this.camera.getWorldPosition(cameraPosition);
-    
-    // Calculate bullet direction - forward vector from camera
-    const bulletDirection = new THREE.Vector3(0, 0, -1);
-    bulletDirection.applyQuaternion(this.camera.getWorldQuaternion(new THREE.Quaternion()));
-    
-    // Position the bullet slightly in front of the camera
-    const bulletOffset = 0.5; // Distance in front of the camera
-    const bulletPosition = {
-      x: cameraPosition.x + bulletDirection.x * bulletOffset,
-      y: cameraPosition.y + bulletDirection.y * bulletOffset,
-      z: cameraPosition.z + bulletDirection.z * bulletOffset
-    };
-    
-    // Create a visual bullet
-    if (this.scene) {
-      createVisualBullet(
-        this.scene,
-        bulletPosition,
-        bulletDirection,
-        this.bulletSpeed,
-        this.bulletColor,
-        this.bulletSize
-      );
-    }
-    
-    // Show bullet trajectory in debug mode
-    if (this.debugVisualizer && this.debugVisualizer.isActive()) {
-      // Create trajectory points for bullet path simulation
-      const points: THREE.Vector3[] = [];
-      const startPos = new THREE.Vector3(bulletPosition.x, bulletPosition.y, bulletPosition.z);
-      points.push(startPos.clone());
-      
-      // Simulate trajectory for visualization
-      const velocity = bulletDirection.clone().normalize().multiplyScalar(this.bulletSpeed);
-      const gravity = new THREE.Vector3(0, -this.bulletGravity, 0);
-      const simPos = startPos.clone();
-      const simVel = velocity.clone();
-      
-      // Create 50 points along trajectory
-      for (let i = 0; i < 50; i++) {
-        // Update velocity with gravity
-        simVel.add(gravity.clone().multiplyScalar(0.05));
-        // Update position
-        simPos.add(simVel.clone().multiplyScalar(0.05));
-        // Add point to trajectory
-        points.push(simPos.clone());
-      }
-      
-      // Draw the trajectory
-      this.debugVisualizer.drawTrajectory(points);
-    }
-    
-    // Calculate the hit after a delay using raycasting
-    // We'll simulate the bullet travel time based on distance
-    this.simulateBulletWithDelay(bulletPosition, bulletDirection);
-  }
-  
-  // Simulate a bullet with realistic physics and delayed hit detection
-  simulateBulletWithDelay(
-    startPosition: { x: number; y: number; z: number },
-    direction: THREE.Vector3,
-    maxTime: number = 5, // Maximum simulation time in seconds
-    timeStep: number = 0.1 // Physics simulation step - increased from 0.05
-  ) {
-    const velocity = direction.clone().normalize().multiplyScalar(this.bulletSpeed);
-    const gravity = new THREE.Vector3(0, -this.bulletGravity, 0);
-    
-    // Current state
-    let position = new THREE.Vector3(startPosition.x, startPosition.y, startPosition.z);
-    let currentVelocity = velocity.clone();
-    let time = 0;
-    
-    // Visual representation of bullet path for debugging
-    const trajectoryPoints: THREE.Vector3[] = [];
-    trajectoryPoints.push(position.clone());
-    
-    // Function to simulate one step
-    const simulateStep = () => {
-      // Check if we've gone too far
-      if (time >= maxTime) return;
-      
-      // Update time
-      time += timeStep;
-      
-      // Store previous position for ray casting
-      const prevPosition = position.clone();
-      
-      // Update velocity with gravity
-      currentVelocity.add(gravity.clone().multiplyScalar(timeStep));
-      
-      // Update position
-      position.add(currentVelocity.clone().multiplyScalar(timeStep));
-      
-      // Store point for debug visualization
-      trajectoryPoints.push(position.clone());
-      
-      // Cast a ray for this step to check for collisions
-      const rayDirection = position.clone().sub(prevPosition).normalize();
-      const rayLength = position.clone().sub(prevPosition).length();
-      
-      // Create a ray from previous position to current position
-      const raycastResult = castBulletRay(
-        this.physics,
-        { x: prevPosition.x, y: prevPosition.y, z: prevPosition.z },
-        rayDirection,
-        rayLength,
-        this.rigidBody
-      );
-      
-      // If we hit something, apply the impact
-      if (raycastResult.hit && raycastResult.hitRigidBody) {
-        // Skip if we hit our own player rigid body
-        if (raycastResult.hitRigidBody === this.rigidBody) {
-          // Continue simulation for next step with delay
-          setTimeout(simulateStep, 50);
-          return;
-        }
-        
-        // Apply impulse to the hit object if it's a dynamic body
-        if (raycastResult.hitRigidBody.bodyType() === RAPIER.RigidBodyType.Dynamic) {
-          const impulseStrength = currentVelocity.length() * 0.5; // Scale impulse by velocity
-          
-          // Apply impulse at the hit point
-          raycastResult.hitRigidBody.applyImpulseAtPoint(
-            { 
-              x: currentVelocity.x * 0.5, 
-              y: currentVelocity.y * 0.5, 
-              z: currentVelocity.z * 0.5 
-            },
-            raycastResult.hitPoint!,
-            true
-          );
-          
-          // Add some random rotation for more realistic impact
-          raycastResult.hitRigidBody.applyTorqueImpulse(
-            {
-              x: (Math.random() - 0.5) * impulseStrength * 0.25,
-              y: (Math.random() - 0.5) * impulseStrength * 0.25,
-              z: (Math.random() - 0.5) * impulseStrength * 0.25
-            },
-            true
-          );
-        }
-        
-        // We hit something, visualize the trajectory in debug mode
-        if (this.debugVisualizer && this.debugVisualizer.isActive()) {
-          this.debugVisualizer.drawTrajectory(trajectoryPoints, 0xff0000);
-        }
-        
-        // Stop simulation
-        return;
-      }
-      
-      // Continue simulation for next step - add real delay between steps (50ms)
-      setTimeout(simulateStep, 50);
-    };
-    
-    // Start simulation
-    simulateStep();
-  }
-
-  // Update the movement state based on current conditions
-  updateMovementState() {
-    const isGrounded = this.characterController.computedGrounded();
-    const now = Date.now();
-    
-    // Update grounded time tracking for coyote time
-    if (isGrounded) {
-      this.lastGroundedTime = now;
-    }
-    
-    // Get surface normal from character controller
-    const slope = this.getSlopeAngle();
-    const isTooSteep = slope > this.maxSlideAngle;
-    
-    // Update movement state
-    if (isGrounded) {
-      // On ground
-      if (isTooSteep) {
-        this.movementState = MovementState.SLIDING;
-      } else {
-        this.movementState = MovementState.GROUNDED;
-      }
-    } else {
-      // In air
-      if (this.verticalVelocity > 0) {
-        this.movementState = MovementState.JUMPING;
-      } else {
-        this.movementState = MovementState.FALLING;
-      }
-    }
-    
-    // Update jump ability for coyote time
-    this.canJump = isGrounded || (now - this.lastGroundedTime < this.coyoteTime);
-  }
-  
-  // Get the slope angle (approximation)
-  getSlopeAngle(): number {
-    // Simple approximation using the up vector and ground normal
-    // For a more accurate implementation, we would need to query collision normals
-    return 0; // Default to flat ground - can be improved with proper normal detection
-  }
-  
-  // Calculate acceleration based on current state
-  getAcceleration(): number {
-    switch (this.movementState) {
-      case MovementState.GROUNDED:
-        return this.groundAcceleration;
-      case MovementState.JUMPING:
-      case MovementState.FALLING:
-        return this.airAcceleration;
-      case MovementState.SLIDING:
-        return this.groundAcceleration * this.slidingFriction;
-      default:
-        return this.groundAcceleration;
-    }
-  }
-  
-  // Calculate deceleration based on current state
-  getDeceleration(): number {
-    switch (this.movementState) {
-      case MovementState.GROUNDED:
-        return this.groundDeceleration;
-      case MovementState.JUMPING:
-      case MovementState.FALLING:
-        return this.airDeceleration;
-      case MovementState.SLIDING:
-        return this.groundDeceleration * this.slidingFriction;
-      default:
-        return this.groundDeceleration;
-    }
+    if (!this.isLocked) return;
+    // Mouse up handling can be implemented here if needed
   }
 
   update(deltaTime: number) {
@@ -615,11 +353,6 @@ export class FPSController {
       this.handleRigidBodyInteractions(deltaTime);
       this.bodyQueryCounter = 0;
     }
-
-    // Handle continuous shooting
-    if (this.isShooting) {
-      this.shoot();
-    }
   }
   
   // Handle pushing of dynamic rigid bodies
@@ -684,5 +417,77 @@ export class FPSController {
         return true;
       }
     );
+  }
+
+  // Update the movement state based on current conditions
+  updateMovementState() {
+    const isGrounded = this.characterController.computedGrounded();
+    const now = Date.now();
+    
+    // Update grounded time tracking for coyote time
+    if (isGrounded) {
+      this.lastGroundedTime = now;
+    }
+    
+    // Get surface normal from character controller
+    const slope = this.getSlopeAngle();
+    const isTooSteep = slope > this.maxSlideAngle;
+    
+    // Update movement state
+    if (isGrounded) {
+      // On ground
+      if (isTooSteep) {
+        this.movementState = MovementState.SLIDING;
+      } else {
+        this.movementState = MovementState.GROUNDED;
+      }
+    } else {
+      // In air
+      if (this.verticalVelocity > 0) {
+        this.movementState = MovementState.JUMPING;
+      } else {
+        this.movementState = MovementState.FALLING;
+      }
+    }
+    
+    // Update jump ability for coyote time
+    this.canJump = isGrounded || (now - this.lastGroundedTime < this.coyoteTime);
+  }
+  
+  // Get the slope angle (approximation)
+  getSlopeAngle(): number {
+    // Simple approximation using the up vector and ground normal
+    // For a more accurate implementation, we would need to query collision normals
+    return 0; // Default to flat ground - can be improved with proper normal detection
+  }
+  
+  // Calculate acceleration based on current state
+  getAcceleration(): number {
+    switch (this.movementState) {
+      case MovementState.GROUNDED:
+        return this.groundAcceleration;
+      case MovementState.JUMPING:
+      case MovementState.FALLING:
+        return this.airAcceleration;
+      case MovementState.SLIDING:
+        return this.groundAcceleration * this.slidingFriction;
+      default:
+        return this.groundAcceleration;
+    }
+  }
+  
+  // Calculate deceleration based on current state
+  getDeceleration(): number {
+    switch (this.movementState) {
+      case MovementState.GROUNDED:
+        return this.groundDeceleration;
+      case MovementState.JUMPING:
+      case MovementState.FALLING:
+        return this.airDeceleration;
+      case MovementState.SLIDING:
+        return this.groundDeceleration * this.slidingFriction;
+      default:
+        return this.groundDeceleration;
+    }
   }
 } 
