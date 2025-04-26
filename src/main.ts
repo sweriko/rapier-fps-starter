@@ -6,6 +6,7 @@ import { setupLights } from './utils/Lights';
 import { createCube, createRandomCubes } from './objects/Cube';
 import { loadModel } from './objects/Model';
 import { InputHandler } from './input/InputHandler';
+import { ProjectileManager } from './controllers/ProjectileManager';
 import Stats from 'stats.js';
 
 // Import Rapier directly - the plugins will handle the WASM loading
@@ -42,8 +43,22 @@ let physics: {
 
 let fpsController: FPSController;
 let inputHandler: InputHandler;
+let projectileManager: ProjectileManager;
 let lastTime = 0;
 let cubes: { mesh: THREE.Mesh, rigidBody: RAPIER.RigidBody }[] = [];
+
+// Add debug stats display
+const statsContainer = document.createElement('div');
+statsContainer.style.position = 'absolute';
+statsContainer.style.bottom = '10px';
+statsContainer.style.right = '10px';
+statsContainer.style.color = 'white';
+statsContainer.style.fontFamily = 'monospace';
+statsContainer.style.fontSize = '12px';
+statsContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+statsContainer.style.padding = '5px';
+statsContainer.style.borderRadius = '3px';
+document.body.appendChild(statsContainer);
 
 // Initialize the game
 async function init() {
@@ -63,6 +78,9 @@ async function init() {
 
   // Setup lights
   setupLights(scene);
+
+  // Initialize projectile manager
+  projectileManager = new ProjectileManager(scene, physics);
 
   // Load the destructible house model
   try {
@@ -97,6 +115,22 @@ async function init() {
   // Set the scene reference in the controller
   fpsController.setScene(scene);
 
+  // Connect the debug visualizer to the projectile manager
+  if (fpsController.debugVisualizer) {
+    projectileManager.setDebugVisualizer(fpsController.debugVisualizer);
+  }
+
+  // Set up shooting callbacks
+  fpsController.setShootCallback((position, direction) => {
+    projectileManager.shoot(position, direction, {
+      speed: 40,
+      size: 0.1,
+      color: 0xff9900,
+      lifespan: 5000,
+      restitution: 0.6
+    });
+  });
+
   // Initialize input handler
   inputHandler = new InputHandler();
   
@@ -109,7 +143,11 @@ async function init() {
   });
 
   // Add help message to console
-  console.log("Press 'V' key to toggle debug visualization (including player capsule collider)");
+  console.log("Controls:");
+  console.log("- WASD/Arrow Keys: Move");
+  console.log("- Space: Jump");
+  console.log("- Left Mouse Button: Shoot");
+  console.log("- V: Toggle debug visualization");
 
   // Handle window resize
   window.addEventListener('resize', onWindowResize);
@@ -171,6 +209,9 @@ function animate(time: number) {
   // Update controller
   fpsController.update(deltaTime);
 
+  // Update projectiles
+  projectileManager.update();
+
   // Update cube positions based on physics
   cubes.forEach(({ mesh, rigidBody }) => {
     const position = rigidBody.translation();
@@ -189,6 +230,12 @@ function animate(time: number) {
       rigidBody.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
   });
+
+  // Update stats display
+  statsContainer.innerHTML = 
+    `FPS: ${Math.round(1 / deltaTime)}<br>` +
+    `Active Projectiles: ${projectileManager.getProjectileCount()}<br>` +
+    `Physics Bodies: ${physics.rigidBodies.size}`;
 
   // Render scene
   renderer.render(scene, camera);

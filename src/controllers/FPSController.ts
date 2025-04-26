@@ -64,6 +64,10 @@ export class FPSController {
   maxSlideAngle: number = 0.8; // ~45 degrees
   bodyQueryInterval: number = 5; // Only perform body queries every N frames
   bodyQueryCounter: number = 0;
+  
+  // Shooting parameters
+  isShooting: boolean = false;
+  onShoot: ((position: THREE.Vector3, direction: THREE.Vector3) => void) | null = null;
 
   constructor(camera: THREE.Camera, physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }, domElement: HTMLElement) {
     this.camera = camera;
@@ -146,6 +150,11 @@ export class FPSController {
     if (this.debugVisualizer && this.collider) {
       this.debugVisualizer.visualizeCollider(this.collider, 0x00ffff); // Use cyan color for player
     }
+  }
+
+  // Set a callback for when player shoots
+  setShootCallback(callback: (position: THREE.Vector3, direction: THREE.Vector3) => void) {
+    this.onShoot = callback;
   }
 
   setupPointerLock() {
@@ -232,12 +241,43 @@ export class FPSController {
 
   onMouseDown(event: MouseEvent) {
     if (!this.isLocked) return;
-    // Mouse down handling can be implemented here if needed
+    
+    // Only handle left mouse button (button 0)
+    if (event.button === 0) {
+      this.isShooting = true;
+      this.shoot();
+    }
   }
 
   onMouseUp(event: MouseEvent) {
     if (!this.isLocked) return;
-    // Mouse up handling can be implemented here if needed
+    
+    // Only handle left mouse button (button 0)
+    if (event.button === 0) {
+      this.isShooting = false;
+    }
+  }
+
+  // Handle shooting logic
+  shoot() {
+    if (this.onShoot) {
+      // Calculate bullet spawn position (slightly in front of camera)
+      const bulletPosition = new THREE.Vector3();
+      const direction = new THREE.Vector3();
+      
+      // Get direction from camera
+      this.camera.getWorldDirection(direction);
+      
+      // Position slightly in front of camera (0.5 units) and at the right height
+      bulletPosition.copy(this.position).add(new THREE.Vector3(0, 1.6, 0)).add(direction.multiplyScalar(0.5));
+      
+      // Reset direction and get it again (since we modified it above)
+      direction.set(0, 0, 0);
+      this.camera.getWorldDirection(direction);
+      
+      // Call the shoot callback
+      this.onShoot(bulletPosition, direction);
+    }
   }
 
   update(deltaTime: number) {
