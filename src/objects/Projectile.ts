@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d';
+import RAPIER from '@dimforge/rapier3d-compat';
 
 export interface ProjectileOptions {
   speed?: number;

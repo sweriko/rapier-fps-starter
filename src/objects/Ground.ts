@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d';
+import RAPIER from '@dimforge/rapier3d-compat';
 
 // Create a ground plane with physics
 export function createGround(physics: { world: RAPIER.World; rigidBodies: Map<THREE.Object3D, RAPIER.RigidBody> }) {

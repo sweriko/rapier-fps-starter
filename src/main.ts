@@ -10,7 +10,7 @@ import { ProjectileManager } from './controllers/ProjectileManager';
 import Stats from 'stats.js';
 
 // Import Rapier directly - the plugins will handle the WASM loading
-import RAPIER from '@dimforge/rapier3d';
+import RAPIER from '@dimforge/rapier3d-compat';
 
 // Initialize scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -62,6 +62,9 @@ document.body.appendChild(statsContainer);
 
 // Initialize the game
 async function init() {
+  // First initialize RAPIER
+  await RAPIER.init();
+  
   // Create physics world with collision event handling
   physics = {
     world: new RAPIER.World({ x: 0, y: -9.81, z: 0 }),

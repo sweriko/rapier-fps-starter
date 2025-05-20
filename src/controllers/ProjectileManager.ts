@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import RAPIER from '@dimforge/rapier3d';
+import RAPIER from '@dimforge/rapier3d-compat';
 import { Projectile, ProjectileOptions, createProjectile } from '../objects/Projectile';
 import { DebugVisualizer } from '../utils/DebugVisualizer';
 
